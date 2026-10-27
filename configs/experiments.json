@@ -1,0 +1,184 @@
+{
+  "protocol_version": "1.1",
+  "status": "draft_pre_registered_data_gate_pending",
+  "study": "Казань: подбор прогулочных точек при временном бюджете",
+  "created_at": "2026-10-18",
+  "dataset": {
+    "path": "data/places_catalog_full.json",
+    "expected_place_count": 32,
+    "expected_zone_count": 5,
+    "coordinate_order": "latitude, longitude (WGS84)",
+    "require_verified_coordinates_for_confirmatory_run": true,
+    "current_verified_count": 32,
+    "include_statuses_for_exploratory_only": [
+      "legacy_unverified",
+      "candidate_map_listing",
+      "candidate_secondary_listing",
+      "candidate_from_published_coordinates",
+      "candidate_official_document",
+      "candidate_reference_point",
+      "candidate_osm_based",
+      "candidate_yandex_listing"
+    ],
+    "exclude_ids": [],
+    "hash": null,
+    "note": "Все 32 активные записи отмечены verified по сообщению пользователя; перед финальным экспериментом зафиксировать новый SHA-256 каталога."
+  },
+  "scenario_design": {
+    "start_policy": "each_included_place_once",
+    "budgets_minutes": [60, 90, 120, 180, 240],
+    "expected_primary_scenarios_full_dataset": 160,
+    "algorithms_per_scenario": 2,
+    "expected_primary_results_full_dataset": 320,
+    "route_shape": "open",
+    "return_to_start": false,
+    "start_is_visited_stop": true,
+    "start_approach_time_minutes": 0,
+    "finish_policy": "last_selected_place; finish zone not constrained",
+    "candidate_filter": "all included and not-yet-visited places",
+    "place_interest_scores": null,
+    "note": "Каждый алгоритм получает один и тот же старт, лимит, набор POI и матрицу."
+  },
+  "time_model": {
+    "walking_speed_kmh_primary": 5,
+    "walking_speed_source": "2GIS help page reports pedestrian ETA based on 5 km/h; used only as a declared scenario assumption",
+    "walking_speed_sensitivity_kmh": [4, 6],
+    "visit_minutes_per_place_primary": 10,
+    "visit_minutes_sensitivity": [5, 20],
+    "visit_time_is_observed": false,
+    "visit_time_policy": "same fixed dwell for every selected place, including start",
+    "formula": "sum(edge_distance_m / (walking_speed_kmh * 1000 / 60)) + visit_minutes_per_place * visited_count",
+    "budget_comparison": "total_minutes <= budget_minutes + 1e-9",
+    "rounding": "retain full precision for feasibility; round display only"
+  },
+  "walking_matrix": {
+    "provider": "Valhalla-compatible pedestrian routing engine",
+    "costing": "pedestrian",
+    "api_action": "sources_to_targets",
+    "matrix_type": "directed all-to-all; sources and targets are the same ordered list of included POIs; partition into 10x10 blocks",
+    "max_pairs_per_request": 100,
+    "block_dimensions": [10, 10],
+    "minimum_public_request_gap_ms": 1100,
+    "expected_matrix_requests_full_dataset": 16,
+    "units": "meters",
+    "expected_cells_full_dataset": 1024,
+    "expected_off_diagonal_pairs_full_dataset": 992,
+    "primary_cost_uses": "distance_m / scenario walking speed; provider duration stored as diagnostic only",
+    "cache_before_algorithm_runs": true,
+    "save_request_response_and_manifest": true,
+    "manifest_fields": [
+      "dataset_hash",
+      "place_id_order",
+      "coordinate_version",
+      "engine_name",
+      "engine_version",
+      "graph_source",
+      "graph_snapshot_date",
+      "costing",
+      "request_timestamp",
+      "response_timestamp",
+      "matrix_hash"
+    ],
+    "unreachable_edge": null,
+    "network_error_policy": "stop matrix acquisition; do not replace with Euclidean distance",
+    "incomplete_response_policy": "stop before experiment until repaired or re-fetched",
+    "public_endpoint_policy": "verify current usage terms and rate limits; endpoint returned max locations 100 for a 36x36 request, so split into at most 100 origin-destination pairs per request and space request starts by at least 1100 ms; local/pinned engine preferred; never issue one request per route leg"
+  },
+  "zones": {
+    "source_field": "zone",
+    "labels_are_official_boundaries": false,
+    "neighbor_definition": "undirected edge between zones if minimum directed pedestrian time between any cross-zone POI pair is <= threshold_minutes",
+    "primary_threshold_minutes": 12,
+    "sensitivity_threshold_minutes": [8, 16],
+    "neighbor_time_uses": "primary walking speed and cached pedestrian distance matrix",
+    "isolated_zone_policy": "zone can be entered only by the zonal algorithm fallback when no feasible candidate exists in an unvisited adjacent zone",
+    "reentry_definition": "after collapsing consecutive duplicate zone labels, count each transition into a zone label already encountered earlier",
+    "note": "Operational graph only; not a claim about administrative or surveyed geographic adjacency."
+  },
+  "algorithms": [
+    {
+      "id": "nearest_feasible",
+      "role": "baseline",
+      "description": "At each step select the nearest reachable unvisited POI that fits remaining time; tie-break by place id; stop when no candidate fits.",
+      "zone_policy": "none"
+    },
+    {
+      "id": "zone_progression_greedy",
+      "role": "proposed",
+      "description": "Prefer feasible unvisited POIs in current zone; otherwise select the nearest feasible POI in an unvisited adjacent zone; if none exists, fall back to the nearest feasible unvisited POI in any zone. Tie-break by zone then place id.",
+      "zone_policy": "prioritize current zone, then unvisited adjacent zone, then global feasible fallback",
+      "visited_poi_reuse": false
+    }
+  ],
+  "metrics": {
+    "primary": [
+      "zone_reentry_count",
+      "visited_count",
+      "visit_retention_ratio"
+    ],
+    "secondary": [
+      "budget_compliant",
+      "overrun_minutes",
+      "total_walk_distance_m",
+      "total_walk_minutes",
+      "total_visit_minutes",
+      "total_time_minutes",
+      "zone_transition_count",
+      "unique_zones_visited",
+      "zone_coverage_ratio",
+      "end_zone_differs_from_start",
+      "algorithm_runtime_ms"
+    ],
+    "diversity_definition": "unique zone count/coverage only; catalog lacks normalized POI interest categories",
+    "accuracy_metric": null,
+    "summary_statistics": [
+      "mean",
+      "median",
+      "interquartile_range",
+      "paired_difference_by_scenario"
+    ],
+    "runtime": {
+      "warmup_runs": 100,
+      "batches": 7,
+      "runs_per_batch": 100,
+      "report": "median milliseconds per algorithm call; exclude network, map rendering, and UI"
+    }
+  },
+  "hypothesis_rule": {
+    "hypothesis": "Zone progression reduces total zone reentries versus nearest-feasible baseline while retaining at least 90% of baseline total visited stops.",
+    "visit_retention_formula": "sum(zone_progression_greedy.visited_count) / sum(nearest_feasible.visited_count)",
+    "minimum_visit_retention": 0.9,
+    "budget_compliance_required_for_both": 1.0,
+    "supported_if": [
+      "paired total zone_reentry_count is lower for zone_progression_greedy",
+      "visit_retention_ratio >= 0.90",
+      "all generated routes satisfy time budget"
+    ],
+    "interpretation_limit": "describes this fixed catalog and scenario set; not user benefit or general superiority"
+  },
+  "sensitivity": {
+    "one_factor_at_a_time": true,
+    "coordinate_jitter_m": [75, 150],
+    "coordinate_jitter_seeds": [17, 43],
+    "coordinate_jitter_policy": "independently displace each verified coordinate by a seeded random bearing and a radius uniformly sampled from 0 to the configured maximum; rebuild matrix using same engine",
+    "exclude_statuses_test": [
+      "legacy_unverified"
+    ],
+    "note": "Coordinate jitter is an artificial robustness stress test, not an estimate of actual coordinate error."
+  },
+  "randomness": {
+    "primary_algorithms_deterministic": true,
+    "tie_break": "lexicographic id (then zone for zone algorithm)",
+    "sensitivity_seed_list": [17, 43],
+    "order_randomization_seed": 20261018
+  },
+  "data_gate": {
+    "confirmatory_run_allowed": false,
+    "blockers": [
+      "Catalog does not contain observed visit durations; use declared scenario assumptions only.",
+      "Need a complete cached pedestrian distance matrix for the exact coordinate version.",
+      "Zone labels and operational adjacency require review against the map; Parks and Gardens may be spatially dispersed."
+    ],
+    "fallback_if_manual_validation_is_not_feasible": "Run only a clearly labeled exploratory algorithm study on a candidate graph; do not claim validated on-foot route quality in Kazan."
+  }
+}

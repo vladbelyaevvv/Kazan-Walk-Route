@@ -6,6 +6,7 @@ dist/
 /reports/
 /data/raw/
 /data/processed/
+/requirements-analysis.txt
 __pycache__/
 *.pyc
 ~$*
